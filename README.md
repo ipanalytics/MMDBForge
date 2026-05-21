@@ -640,27 +640,6 @@ Planned areas for future work:
 - JSON Schema compatibility mode
 - SARIF or GitHub annotation output for CI
 
-## GitHub Topics
-
-Suggested repository topics:
-
-```text
-maxmind
-maxminddb
-mmdb
-geoip
-ip-geolocation
-database-tools
-cli
-golang
-diff
-schema-validation
-data-quality
-release-audit
-ci
-developer-tools
-networking
-```
 
 ## License
 
