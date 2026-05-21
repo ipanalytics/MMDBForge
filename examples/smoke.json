@@ -1,0 +1,15 @@
+[
+  {
+    "ip": "91.196.220.30",
+    "expect": {
+      "privacy.is_vpn": true,
+      "privacy.vpn_provider": "NordVPN"
+    }
+  },
+  {
+    "ip": "8.8.8.8",
+    "expect": {
+      "profile.is_anycast": true
+    }
+  }
+]

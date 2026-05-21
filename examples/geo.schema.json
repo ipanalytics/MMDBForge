@@ -1,0 +1,20 @@
+{
+  "required": [
+    "country.iso_code"
+  ],
+  "fields": {
+    "country.iso_code": {
+      "type": "string"
+    },
+    "location.latitude": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90
+    },
+    "location.longitude": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+    }
+  }
+}

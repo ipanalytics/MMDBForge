@@ -1,0 +1,41 @@
+{
+  "required": [
+    "privacy.is_vpn",
+    "confidence"
+  ],
+  "fields": {
+    "privacy.is_vpn": {
+      "type": "boolean"
+    },
+    "privacy.vpn_provider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "risk_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    }
+  },
+  "rules": [
+    {
+      "if": "privacy.is_vpn == true",
+      "then_required": [
+        "privacy.privacy_service"
+      ]
+    },
+    {
+      "if": "risk_score >= 80",
+      "then_required": [
+        "risk_reasons"
+      ]
+    }
+  ]
+}
