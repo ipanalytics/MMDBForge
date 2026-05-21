@@ -10,15 +10,17 @@ import (
 )
 
 type Schema struct {
-	Required []string             `json:"required"`
-	Fields   map[string]FieldRule `json:"fields"`
-	Rules    []Rule               `json:"rules"`
+	Required   []string             `json:"required"`
+	Fields     map[string]FieldRule `json:"fields"`
+	Rules      []Rule               `json:"rules"`
+	Properties map[string]FieldRule `json:"properties"`
 }
 
 type FieldRule struct {
-	Type    any      `json:"type"`
-	Minimum *float64 `json:"minimum"`
-	Maximum *float64 `json:"maximum"`
+	Type       any                  `json:"type"`
+	Minimum    *float64             `json:"minimum"`
+	Maximum    *float64             `json:"maximum"`
+	Properties map[string]FieldRule `json:"properties"`
 }
 
 type Rule struct {
@@ -64,7 +66,25 @@ func Load(path string) (Schema, error) {
 	if err := json.Unmarshal(body, &s); err != nil {
 		return Schema{}, err
 	}
+	if len(s.Fields) == 0 && len(s.Properties) > 0 {
+		s.Fields = map[string]FieldRule{}
+		flattenJSONSchemaProperties("", s.Properties, s.Fields)
+	}
 	return s, nil
+}
+
+func flattenJSONSchemaProperties(prefix string, props map[string]FieldRule, out map[string]FieldRule) {
+	for name, rule := range props {
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		if len(rule.Properties) > 0 {
+			flattenJSONSchemaProperties(path, rule.Properties, out)
+			continue
+		}
+		out[path] = FieldRule{Type: rule.Type, Minimum: rule.Minimum, Maximum: rule.Maximum}
+	}
 }
 
 func validateEntry(s Schema, entry mmdb.Entry, res *Result) {

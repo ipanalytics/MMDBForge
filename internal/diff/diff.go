@@ -9,6 +9,7 @@ import (
 
 type Options struct {
 	Sample             int
+	Full               bool
 	IPsFile            string
 	Fields             []string
 	FailThresholdName  string
@@ -176,6 +177,9 @@ func baseEntries(path string, opts Options) ([]mmdb.Entry, error) {
 			return nil, err
 		}
 		return mmdb.LookupIPs(path, ips)
+	}
+	if opts.Full {
+		return mmdb.Sample(path, -1)
 	}
 	return mmdb.Sample(path, opts.Sample)
 }

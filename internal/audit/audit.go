@@ -3,7 +3,9 @@ package audit
 import (
 	"fmt"
 
+	"mmdbforge/internal/bench"
 	"mmdbforge/internal/diff"
+	"mmdbforge/internal/prefixes"
 	"mmdbforge/internal/schema"
 	"mmdbforge/internal/smoke"
 	"mmdbforge/internal/stats"
@@ -18,14 +20,17 @@ type Options struct {
 }
 
 type Result struct {
-	Verdict  string         `json:"verdict"`
-	Summary  []string       `json:"summary"`
-	Failures []string       `json:"failures,omitempty"`
-	Diff     diff.Result    `json:"diff"`
-	Schema   *schema.Result `json:"schema,omitempty"`
-	Smoke    *smoke.Result  `json:"smoke,omitempty"`
-	OldStats stats.Result   `json:"old_stats"`
-	NewStats stats.Result   `json:"new_stats"`
+	Verdict      string                 `json:"verdict"`
+	Summary      []string               `json:"summary"`
+	Failures     []string               `json:"failures,omitempty"`
+	Diff         diff.Result            `json:"diff"`
+	Schema       *schema.Result         `json:"schema,omitempty"`
+	Smoke        *smoke.Result          `json:"smoke,omitempty"`
+	OldStats     stats.Result           `json:"old_stats"`
+	NewStats     stats.Result           `json:"new_stats"`
+	CoverageDiff stats.DiffResult       `json:"coverage_diff"`
+	Prefixes     prefixes.CompareResult `json:"prefixes"`
+	Benchmark    bench.CompareResult    `json:"benchmark"`
 }
 
 func Release(opts Options) (Result, error) {
@@ -44,8 +49,26 @@ func Release(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Verdict: "PASS", Diff: d, OldStats: oldStats, NewStats: newStats}
+	coverageDiff, err := stats.Diff(opts.OldDB, opts.NewDB, opts.Sample)
+	if err != nil {
+		return Result{}, err
+	}
+	prefixDiff, err := prefixes.Compare(opts.OldDB, opts.NewDB, opts.Sample)
+	if err != nil {
+		return Result{}, err
+	}
+	benchmark, err := bench.Compare(opts.OldDB, opts.NewDB, opts.Sample)
+	if err != nil {
+		return Result{}, err
+	}
+	res := Result{Verdict: "PASS", Diff: d, OldStats: oldStats, NewStats: newStats, CoverageDiff: coverageDiff, Prefixes: prefixDiff, Benchmark: benchmark}
 	res.Summary = append(res.Summary, fmt.Sprintf("%.2f%% sampled records changed", d.ChangedPercent))
+	res.Summary = append(res.Summary, fmt.Sprintf("field coverage changed for %d field(s)", len(coverageDiff.CoverageChanges)))
+	res.Summary = append(res.Summary, fmt.Sprintf("lookup throughput changed %.2f%%", benchmark.LookupsPerSecChangePercent))
+	if len(prefixDiff.Warnings) > 0 {
+		res.Verdict = "WARN"
+		res.Failures = append(res.Failures, prefixDiff.Warnings...)
+	}
 	if oldStats.FileSizeMB > 0 {
 		delta := (newStats.FileSizeMB - oldStats.FileSizeMB) * 100 / oldStats.FileSizeMB
 		res.Summary = append(res.Summary, fmt.Sprintf("file size changed %.2f%%", delta))

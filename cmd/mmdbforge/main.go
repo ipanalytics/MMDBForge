@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	"mmdbforge/internal/audit"
+	"mmdbforge/internal/bench"
 	"mmdbforge/internal/diff"
 	"mmdbforge/internal/lookup"
+	"mmdbforge/internal/prefixes"
 	"mmdbforge/internal/report"
 	"mmdbforge/internal/schema"
 	"mmdbforge/internal/smoke"
@@ -22,11 +24,14 @@ const usage = `MMDB Forge is a developer toolkit for inspecting, validating, dif
 Usage:
   mmdbforge inspect <db.mmdb> <ip>
   mmdbforge explain <db.mmdb> <ip>
-  mmdbforge diff <old.mmdb> <new.mmdb> [--sample N] [--ips file] [--fields a,b] [--json] [--markdown [file]] [--fail-threshold changed_percent=N] [--fail-on-missing-field field] [--fail-on-drop field]
+  mmdbforge diff <old.mmdb> <new.mmdb> [--sample N] [--full] [--ips file] [--fields a,b] [--json] [--markdown [file]] [--fail-threshold changed_percent=N] [--fail-on-missing-field field] [--fail-on-drop field]
   mmdbforge validate <schema.json> <db.mmdb> [--sample N]
   mmdbforge stats <db.mmdb> [--sample N] [--top N]
+  mmdbforge stats diff <old.mmdb> <new.mmdb> [--sample N] [--full]
   mmdbforge fields <db.mmdb> [--sample N]
   mmdbforge smoke <db.mmdb> <smoke.json>
+  mmdbforge prefixes <db.mmdb> [new.mmdb] [--sample N] [--full]
+  mmdbforge bench <db.mmdb> [new.mmdb] [--sample N] [--full]
   mmdbforge audit release --old old.mmdb --new new.mmdb [--schema schema.json] [--smoke smoke.json] [--sample N] [--markdown [file]]
 `
 
@@ -58,6 +63,10 @@ func run(args []string, out io.Writer) error {
 		return fieldsCmd(args[1:], out)
 	case "smoke":
 		return smokeCmd(args[1:], out)
+	case "prefixes":
+		return prefixesCmd(args[1:], out)
+	case "bench":
+		return benchCmd(args[1:], out)
 	case "audit":
 		return auditCmd(args[1:], out)
 	case "-h", "--help", "help":
@@ -108,6 +117,7 @@ func diffCmd(args []string, out io.Writer) error {
 	var jsonOut bool
 	var markdown markdownFlag
 	fs.IntVar(&opts.Sample, "sample", 10000, "sample size")
+	fs.BoolVar(&opts.Full, "full", false, "traverse all networks")
 	fs.StringVar(&opts.IPsFile, "ips", "", "file with test IPs")
 	fs.StringVar(&fields, "fields", "", "comma-separated fields")
 	fs.BoolVar(&jsonOut, "json", false, "print JSON output")
@@ -172,11 +182,16 @@ func validateCmd(args []string, out io.Writer) error {
 }
 
 func statsCmd(args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "diff" {
+		return statsDiffCmd(args[1:], out)
+	}
 	fs := flag.NewFlagSet("stats", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var sample, top int
+	var table bool
 	fs.IntVar(&sample, "sample", 10000, "sample size")
 	fs.IntVar(&top, "top", 10, "top value count")
+	fs.BoolVar(&table, "table", false, "print table output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -186,6 +201,37 @@ func statsCmd(args []string, out io.Writer) error {
 	res, err := stats.Run(fs.Arg(0), sample, top)
 	if err != nil {
 		return err
+	}
+	if table {
+		return report.StatsTable(out, res)
+	}
+	return report.JSON(out, res)
+}
+
+func statsDiffCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("stats diff", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var sample int
+	var table bool
+	var full bool
+	fs.IntVar(&sample, "sample", 10000, "sample size")
+	fs.BoolVar(&table, "table", false, "print table output")
+	fs.BoolVar(&full, "full", false, "traverse all networks")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("usage: mmdbforge stats diff <old.mmdb> <new.mmdb>")
+	}
+	if full {
+		sample = -1
+	}
+	res, err := stats.Diff(fs.Arg(0), fs.Arg(1), sample)
+	if err != nil {
+		return err
+	}
+	if table {
+		return report.CoverageDiffTable(out, res)
 	}
 	return report.JSON(out, res)
 }
@@ -228,6 +274,76 @@ func smokeCmd(args []string, out io.Writer) error {
 		return fmt.Errorf("smoke failed: %d expectation(s) failed", res.Failed)
 	}
 	return nil
+}
+
+func prefixesCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("prefixes", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var sample int
+	var table bool
+	var full bool
+	fs.IntVar(&sample, "sample", 10000, "sample size")
+	fs.BoolVar(&table, "table", false, "print table output")
+	fs.BoolVar(&full, "full", false, "traverse all networks")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if full {
+		sample = -1
+	}
+	if fs.NArg() == 1 {
+		res, err := prefixes.Run(fs.Arg(0), sample)
+		if err != nil {
+			return err
+		}
+		if table {
+			return report.PrefixTable(out, res)
+		}
+		return report.JSON(out, res)
+	}
+	if fs.NArg() == 2 {
+		res, err := prefixes.Compare(fs.Arg(0), fs.Arg(1), sample)
+		if err != nil {
+			return err
+		}
+		return report.JSON(out, res)
+	}
+	return errors.New("usage: mmdbforge prefixes <db.mmdb> [new.mmdb]")
+}
+
+func benchCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var sample int
+	var table bool
+	var full bool
+	fs.IntVar(&sample, "sample", 10000, "sample size")
+	fs.BoolVar(&table, "table", false, "print table output")
+	fs.BoolVar(&full, "full", false, "traverse all networks")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if full {
+		sample = -1
+	}
+	if fs.NArg() == 1 {
+		res, err := bench.Run(fs.Arg(0), sample)
+		if err != nil {
+			return err
+		}
+		if table {
+			return report.BenchTable(out, res)
+		}
+		return report.JSON(out, res)
+	}
+	if fs.NArg() == 2 {
+		res, err := bench.Compare(fs.Arg(0), fs.Arg(1), sample)
+		if err != nil {
+			return err
+		}
+		return report.JSON(out, res)
+	}
+	return errors.New("usage: mmdbforge bench <db.mmdb> [new.mmdb]")
 }
 
 func auditCmd(args []string, out io.Writer) error {

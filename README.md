@@ -104,8 +104,11 @@ mmdbforge explain <db.mmdb> <ip>
 mmdbforge diff <old.mmdb> <new.mmdb> [flags]
 mmdbforge validate <schema.json> <db.mmdb> [flags]
 mmdbforge stats <db.mmdb> [flags]
+mmdbforge stats diff <old.mmdb> <new.mmdb> [flags]
 mmdbforge fields <db.mmdb> [flags]
 mmdbforge smoke <db.mmdb> <smoke.json>
+mmdbforge prefixes <db.mmdb> [new.mmdb] [flags]
+mmdbforge bench <db.mmdb> [new.mmdb] [flags]
 mmdbforge audit release --old <old.mmdb> --new <new.mmdb> [flags]
 ```
 
@@ -237,6 +240,7 @@ Useful flags:
 
 ```bash
 --sample 100000
+--full
 --ips test-ips.txt
 --fields privacy.is_vpn,privacy.vpn_provider
 --json
@@ -271,7 +275,8 @@ mmdbforge diff old.mmdb new.mmdb \
 
 `diff` is intentionally sampling-based by default. For very large databases,
 this gives a fast release signal without requiring a full exhaustive comparison.
-For deterministic checks, pass a fixed IP list with `--ips`.
+For deterministic checks, pass a fixed IP list with `--ips`. For exhaustive
+database traversal, use `--full`.
 
 ## validate
 
@@ -346,6 +351,10 @@ Supported schema features:
 The schema format is deliberately small. It is meant for MMDB release contracts,
 not for modeling every possible JSON Schema feature.
 
+MMDB Forge also accepts a basic JSON Schema-style object with `required` and
+nested `properties`. Nested properties are flattened into dotted MMDB field
+paths before validation.
+
 ## stats
 
 `stats` summarizes metadata, file size, field coverage, and top scalar values.
@@ -386,6 +395,14 @@ Example output:
 
 Use `stats` when you want to know whether a release changed shape even before
 looking at exact field transitions.
+
+Compare field coverage between two releases:
+
+```bash
+mmdbforge stats diff old.mmdb new.mmdb --sample 100000
+mmdbforge stats diff old.mmdb new.mmdb --full
+mmdbforge stats diff old.mmdb new.mmdb --sample 100000 --table
+```
 
 ## fields
 
@@ -475,6 +492,34 @@ Smoke tests are best for high-value examples: known VPN exits, known residential
 IPs, known anycast IPs, test prefixes, internal fixtures, and customer-reported
 edge cases.
 
+## prefixes
+
+`prefixes` checks prefix-shape distribution and warns when host-level records
+dominate the sampled networks.
+
+```bash
+mmdbforge prefixes vpn.mmdb --sample 100000 --table
+mmdbforge prefixes vpn.mmdb --full
+mmdbforge prefixes old.mmdb new.mmdb --sample 100000
+```
+
+This catches release mistakes such as unexpected `/32` or `/128` explosions.
+Compiled MMDB data is already stored as a search trie, so this is a release
+shape check for the built database rather than a raw source CIDR overlap linter.
+
+## bench
+
+`bench` measures sampled lookup throughput.
+
+```bash
+mmdbforge bench vpn.mmdb --sample 100000 --table
+mmdbforge bench vpn.mmdb --full
+mmdbforge bench old.mmdb new.mmdb --sample 100000
+```
+
+Use it to catch releases that become significantly slower even when schema and
+smoke tests pass.
+
 ## audit release
 
 `audit release` combines the core release checks into one command.
@@ -494,6 +539,9 @@ It runs:
 - metadata and file size checks
 - sampled diff
 - field coverage stats
+- field coverage diff
+- prefix-shape checks
+- lookup benchmark comparison
 - schema validation
 - known IP smoke tests
 - release verdict generation
@@ -631,15 +679,31 @@ docs/               command guides and CI notes
 
 Planned areas for future work:
 
-- richer Markdown audit reports
-- table output for humans
-- full prefix traversal diff modes
-- CIDR overlap and prefix-shape checks
-- field coverage diff between old and new versions
-- performance benchmarking between releases
-- JSON Schema compatibility mode
+- raw source CIDR overlap linting before MMDB compilation
+- richer JSON Schema compatibility
 - SARIF or GitHub annotation output for CI
 
+## GitHub Topics
+
+Suggested repository topics:
+
+```text
+maxmind
+maxminddb
+mmdb
+geoip
+ip-geolocation
+database-tools
+cli
+golang
+diff
+schema-validation
+data-quality
+release-audit
+ci
+developer-tools
+networking
+```
 
 ## License
 

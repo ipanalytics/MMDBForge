@@ -23,6 +23,20 @@ type FieldsResult struct {
 	Fields         []string `json:"fields"`
 }
 
+type DiffResult struct {
+	OldCheckedRecords int                     `json:"old_checked_records"`
+	NewCheckedRecords int                     `json:"new_checked_records"`
+	CoverageChanges   map[string]CoverageDiff `json:"coverage_changes"`
+	AddedFields       []string                `json:"added_fields,omitempty"`
+	RemovedFields     []string                `json:"removed_fields,omitempty"`
+}
+
+type CoverageDiff struct {
+	OldCoverage float64 `json:"old_coverage"`
+	NewCoverage float64 `json:"new_coverage"`
+	Delta       float64 `json:"delta"`
+}
+
 func Run(path string, sample, top int) (Result, error) {
 	db, err := mmdb.Open(path)
 	if err != nil {
@@ -102,6 +116,46 @@ func Fields(path string, sample int) (FieldsResult, error) {
 	}
 	sort.Strings(fields)
 	return FieldsResult{CheckedRecords: len(entries), Fields: fields}, nil
+}
+
+func Diff(oldPath, newPath string, sample int) (DiffResult, error) {
+	oldStats, err := Run(oldPath, sample, 0)
+	if err != nil {
+		return DiffResult{}, err
+	}
+	newStats, err := Run(newPath, sample, 0)
+	if err != nil {
+		return DiffResult{}, err
+	}
+	res := DiffResult{
+		OldCheckedRecords: oldStats.CheckedRecords,
+		NewCheckedRecords: newStats.CheckedRecords,
+		CoverageChanges:   map[string]CoverageDiff{},
+	}
+	keys := map[string]bool{}
+	for field := range oldStats.FieldCoverage {
+		keys[field] = true
+	}
+	for field := range newStats.FieldCoverage {
+		keys[field] = true
+	}
+	for field := range keys {
+		oldCoverage, oldOK := oldStats.FieldCoverage[field]
+		newCoverage, newOK := newStats.FieldCoverage[field]
+		switch {
+		case !oldOK && newOK:
+			res.AddedFields = append(res.AddedFields, field)
+		case oldOK && !newOK:
+			res.RemovedFields = append(res.RemovedFields, field)
+		}
+		delta := newCoverage - oldCoverage
+		if delta != 0 {
+			res.CoverageChanges[field] = CoverageDiff{OldCoverage: oldCoverage, NewCoverage: newCoverage, Delta: delta}
+		}
+	}
+	sort.Strings(res.AddedFields)
+	sort.Strings(res.RemovedFields)
+	return res, nil
 }
 
 type valueCount struct {

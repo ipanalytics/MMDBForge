@@ -66,7 +66,8 @@ func Sample(path string, limit int) ([]Entry, error) {
 }
 
 func SampleReader(db *maxminddb.Reader, limit int) ([]Entry, error) {
-	if limit <= 0 {
+	full := limit < 0
+	if limit == 0 {
 		limit = 10000
 	}
 	networks := db.Networks(maxminddb.SkipAliasedNetworks)
@@ -89,7 +90,7 @@ func SampleReader(db *maxminddb.Reader, limit int) ([]Entry, error) {
 			Network: network.String(),
 			Record:  Normalize(record).(map[string]any),
 		})
-		if len(entries) >= limit {
+		if !full && len(entries) >= limit {
 			break
 		}
 	}
