@@ -12,7 +12,9 @@ Example GitHub Actions step:
       --old artifacts/vpn-previous.mmdb \
       --new artifacts/vpn-current.mmdb \
       --schema examples/vpn.schema.json \
+      --policy examples/release.policy.json \
       --smoke fixtures/vpn-smoke.json \
       --sample 100000 \
-      --markdown report.md
+      --markdown report.md \
+      --html report.html
 ```

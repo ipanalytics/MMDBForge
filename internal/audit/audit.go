@@ -31,6 +31,12 @@ type Result struct {
 	CoverageDiff stats.DiffResult       `json:"coverage_diff"`
 	Prefixes     prefixes.CompareResult `json:"prefixes"`
 	Benchmark    bench.CompareResult    `json:"benchmark"`
+	Policy       *PolicyResult          `json:"policy,omitempty"`
+}
+
+type PolicyResult struct {
+	Passed   bool     `json:"passed"`
+	Failures []string `json:"failures,omitempty"`
 }
 
 func Release(opts Options) (Result, error) {

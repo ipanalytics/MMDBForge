@@ -10,8 +10,10 @@ import (
 
 	"mmdbforge/internal/audit"
 	"mmdbforge/internal/bench"
+	"mmdbforge/internal/cidrlint"
 	"mmdbforge/internal/diff"
 	"mmdbforge/internal/lookup"
+	"mmdbforge/internal/policy"
 	"mmdbforge/internal/prefixes"
 	"mmdbforge/internal/report"
 	"mmdbforge/internal/schema"
@@ -24,6 +26,8 @@ const usage = `MMDB Forge is a developer toolkit for inspecting, validating, dif
 Usage:
   mmdbforge inspect <db.mmdb> <ip>
   mmdbforge explain <db.mmdb> <ip>
+  mmdbforge explain-diff <old.mmdb> <new.mmdb> <ip>
+  mmdbforge lint cidr <prefixes.txt|prefixes.csv|prefixes.jsonl>
   mmdbforge diff <old.mmdb> <new.mmdb> [--sample N] [--full] [--ips file] [--fields a,b] [--json] [--markdown [file]] [--fail-threshold changed_percent=N] [--fail-on-missing-field field] [--fail-on-drop field]
   mmdbforge validate <schema.json> <db.mmdb> [--sample N]
   mmdbforge stats <db.mmdb> [--sample N] [--top N]
@@ -32,7 +36,7 @@ Usage:
   mmdbforge smoke <db.mmdb> <smoke.json>
   mmdbforge prefixes <db.mmdb> [new.mmdb] [--sample N] [--full]
   mmdbforge bench <db.mmdb> [new.mmdb] [--sample N] [--full]
-  mmdbforge audit release --old old.mmdb --new new.mmdb [--schema schema.json] [--smoke smoke.json] [--sample N] [--markdown [file]]
+  mmdbforge audit release --old old.mmdb --new new.mmdb [--schema schema.json] [--smoke smoke.json] [--policy policy.json] [--sample N] [--markdown [file]] [--html [file]]
 `
 
 func main() {
@@ -53,6 +57,10 @@ func run(args []string, out io.Writer) error {
 		return inspectCmd(args[1:], out)
 	case "explain":
 		return explainCmd(args[1:], out)
+	case "explain-diff":
+		return explainDiffCmd(args[1:], out)
+	case "lint":
+		return lintCmd(args[1:], out)
 	case "diff":
 		return diffCmd(args[1:], out)
 	case "validate":
@@ -107,6 +115,47 @@ func explainCmd(args []string, out io.Writer) error {
 		return err
 	}
 	return report.JSON(out, res)
+}
+
+func explainDiffCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("explain-diff", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 3 {
+		return errors.New("usage: mmdbforge explain-diff <old.mmdb> <new.mmdb> <ip>")
+	}
+	res, err := diff.Explain(fs.Arg(0), fs.Arg(1), fs.Arg(2))
+	if err != nil {
+		return err
+	}
+	return report.JSON(out, res)
+}
+
+func lintCmd(args []string, out io.Writer) error {
+	if len(args) == 0 || args[0] != "cidr" {
+		return errors.New("usage: mmdbforge lint cidr <prefixes.txt|prefixes.csv|prefixes.jsonl>")
+	}
+	fs := flag.NewFlagSet("lint cidr", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: mmdbforge lint cidr <prefixes.txt|prefixes.csv|prefixes.jsonl>")
+	}
+	res, err := cidrlint.Run(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if err := report.JSON(out, res); err != nil {
+		return err
+	}
+	if res.Failed {
+		return fmt.Errorf("CIDR lint failed with %d error(s)", len(res.Errors))
+	}
+	return nil
 }
 
 func diffCmd(args []string, out io.Writer) error {
@@ -354,21 +403,40 @@ func auditCmd(args []string, out io.Writer) error {
 	fs.SetOutput(io.Discard)
 	var opts audit.Options
 	var markdown markdownFlag
+	var html htmlFlag
+	var policyPath string
 	fs.StringVar(&opts.OldDB, "old", "", "old database")
 	fs.StringVar(&opts.NewDB, "new", "", "new database")
 	fs.StringVar(&opts.SchemaPath, "schema", "", "schema file")
 	fs.StringVar(&opts.SmokePath, "smoke", "", "smoke file")
+	fs.StringVar(&policyPath, "policy", "", "release policy JSON")
 	fs.IntVar(&opts.Sample, "sample", 10000, "sample size")
 	fs.Var(&markdown, "markdown", "write markdown to stdout or optional path")
-	if err := fs.Parse(normalizeOptionalValue(args[1:], "--markdown")); err != nil {
+	fs.Var(&html, "html", "write HTML report to optional path")
+	normalized := normalizeOptionalValue(normalizeOptionalValue(args[1:], "--markdown"), "--html")
+	if err := fs.Parse(normalized); err != nil {
 		return err
 	}
 	res, err := audit.Release(opts)
 	if err != nil {
 		return err
 	}
+	if policyPath != "" {
+		pr, err := policy.Evaluate(policyPath, res)
+		if err != nil {
+			return err
+		}
+		res.Policy = &audit.PolicyResult{Passed: pr.Passed, Failures: pr.Failures}
+		if !pr.Passed {
+			res.Verdict = "FAIL"
+			res.Failures = append(res.Failures, pr.Failures...)
+		}
+	}
 	if markdown.set {
 		return writeMarkdown(out, markdown.path, report.AuditMarkdown(res))
+	}
+	if html.set {
+		return writeMarkdown(out, html.path, report.AuditHTML(res))
 	}
 	return report.JSON(out, res)
 }
@@ -441,3 +509,5 @@ func (f *markdownFlag) Set(v string) error {
 }
 
 func (f *markdownFlag) IsBoolFlag() bool { return true }
+
+type htmlFlag = markdownFlag

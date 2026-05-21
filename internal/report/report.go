@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"sort"
 	"strings"
@@ -18,6 +19,48 @@ func JSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+func AuditHTML(res audit.Result) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<!doctype html><html><head><meta charset=\"utf-8\"><title>MMDB Release Audit</title>")
+	fmt.Fprintf(&b, "<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin:32px;color:#17202a}h1,h2{margin-top:28px}.verdict{display:inline-block;padding:6px 10px;border-radius:6px;background:#eef2ff;font-weight:700}.fail{background:#fee2e2}.warn{background:#fef3c7}.pass{background:#dcfce7}table{border-collapse:collapse;width:100%%;margin:12px 0}th,td{border:1px solid #d8dee9;padding:8px;text-align:left}th{background:#f6f8fa}code{background:#f6f8fa;padding:2px 4px;border-radius:4px}.num{text-align:right}</style></head><body>")
+	class := strings.ToLower(res.Verdict)
+	fmt.Fprintf(&b, "<h1>MMDB Release Audit</h1><p>Verdict: <span class=\"verdict %s\">%s</span></p>", class, html.EscapeString(res.Verdict))
+	fmt.Fprintf(&b, "<h2>Summary</h2><ul>")
+	for _, item := range res.Summary {
+		fmt.Fprintf(&b, "<li>%s</li>", html.EscapeString(item))
+	}
+	fmt.Fprintf(&b, "</ul>")
+	if len(res.Failures) > 0 {
+		fmt.Fprintf(&b, "<h2>Failures</h2><ul>")
+		for _, failure := range res.Failures {
+			fmt.Fprintf(&b, "<li>%s</li>", html.EscapeString(failure))
+		}
+		fmt.Fprintf(&b, "</ul>")
+	}
+	fmt.Fprintf(&b, "<h2>Diff</h2><table><tr><th>Metric</th><th>Value</th></tr><tr><td>Sample size</td><td class=\"num\">%d</td></tr><tr><td>Changed records</td><td class=\"num\">%d</td></tr><tr><td>Changed percent</td><td class=\"num\">%.2f%%</td></tr></table>", res.Diff.SampleSize, res.Diff.ChangedRecords, res.Diff.ChangedPercent)
+	if len(res.Diff.TopChanges) > 0 {
+		fmt.Fprintf(&b, "<h2>Top Changes</h2><table><tr><th>Field</th><th>Old</th><th>New</th><th>Count</th></tr>")
+		for _, ch := range res.Diff.TopChanges {
+			fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td>%s</td><td>%s</td><td class=\"num\">%d</td></tr>", html.EscapeString(ch.Field), html.EscapeString(fmt.Sprint(ch.Old)), html.EscapeString(fmt.Sprint(ch.New)), ch.Count)
+		}
+		fmt.Fprintf(&b, "</table>")
+	}
+	fmt.Fprintf(&b, "<h2>Field Coverage Diff</h2><table><tr><th>Field</th><th>Old</th><th>New</th><th>Delta</th></tr>")
+	fields := make([]string, 0, len(res.CoverageDiff.CoverageChanges))
+	for field := range res.CoverageDiff.CoverageChanges {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	for _, field := range fields {
+		ch := res.CoverageDiff.CoverageChanges[field]
+		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td class=\"num\">%.2f%%</td><td class=\"num\">%.2f%%</td><td class=\"num\">%+.2f</td></tr>", html.EscapeString(field), ch.OldCoverage, ch.NewCoverage, ch.Delta)
+	}
+	fmt.Fprintf(&b, "</table>")
+	fmt.Fprintf(&b, "<h2>Benchmark</h2><table><tr><th>Version</th><th>Lookups</th><th>Lookups/sec</th><th>Avg lookup us</th></tr><tr><td>Old</td><td class=\"num\">%d</td><td class=\"num\">%.2f</td><td class=\"num\">%.2f</td></tr><tr><td>New</td><td class=\"num\">%d</td><td class=\"num\">%.2f</td><td class=\"num\">%.2f</td></tr></table>", res.Benchmark.Old.Lookups, res.Benchmark.Old.LookupsPerSec, res.Benchmark.Old.AvgLookupMicros, res.Benchmark.New.Lookups, res.Benchmark.New.LookupsPerSec, res.Benchmark.New.AvgLookupMicros)
+	fmt.Fprintf(&b, "</body></html>")
+	return b.String()
 }
 
 func DiffMarkdown(res diff.Result) string {

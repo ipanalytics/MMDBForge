@@ -101,6 +101,8 @@ mmdbforge audit release \
 ```text
 mmdbforge inspect <db.mmdb> <ip>
 mmdbforge explain <db.mmdb> <ip>
+mmdbforge explain-diff <old.mmdb> <new.mmdb> <ip>
+mmdbforge lint cidr <prefixes.txt|prefixes.csv|prefixes.jsonl>
 mmdbforge diff <old.mmdb> <new.mmdb> [flags]
 mmdbforge validate <schema.json> <db.mmdb> [flags]
 mmdbforge stats <db.mmdb> [flags]
@@ -277,6 +279,39 @@ mmdbforge diff old.mmdb new.mmdb \
 this gives a fast release signal without requiring a full exhaustive comparison.
 For deterministic checks, pass a fixed IP list with `--ips`. For exhaustive
 database traversal, use `--full`.
+
+## explain-diff
+
+`explain-diff` explains exactly what changed for one IP between two database
+versions.
+
+```bash
+mmdbforge explain-diff old.mmdb new.mmdb 91.196.220.30
+```
+
+It returns the old matched prefix, new matched prefix, old record, new record,
+and a sorted list of changed dotted fields. This is the fastest way to debug a
+single customer-reported IP or a smoke-test regression.
+
+## lint cidr
+
+`lint cidr` checks raw source prefixes before they are compiled into MMDB.
+
+```bash
+mmdbforge lint cidr prefixes.txt
+mmdbforge lint cidr prefixes.csv
+mmdbforge lint cidr prefixes.jsonl
+```
+
+Supported input:
+
+- plain text: first token is CIDR
+- CSV/TSV: first column is CIDR
+- JSONL: `cidr`, `network`, or `prefix` string field
+
+It reports invalid CIDRs, duplicate CIDRs, and narrower prefixes shadowed by a
+broader prefix. This catches source data mistakes that are hard to reconstruct
+after the database has already been compiled.
 
 ## validate
 
@@ -530,8 +565,10 @@ mmdbforge audit release \
   --new vpn-2026-05-21.mmdb \
   --schema examples/vpn.schema.json \
   --smoke examples/smoke.json \
+  --policy examples/release.policy.json \
   --sample 100000 \
-  --markdown report.md
+  --markdown report.md \
+  --html report.html
 ```
 
 It runs:
@@ -542,6 +579,8 @@ It runs:
 - field coverage diff
 - prefix-shape checks
 - lookup benchmark comparison
+- release policy gates
+- standalone Markdown and HTML reports
 - schema validation
 - known IP smoke tests
 - release verdict generation
@@ -564,6 +603,22 @@ Verdicts:
 - `PASS`: no configured checks failed
 - `WARN`: suspicious but not contract-breaking changes, such as a large file size increase
 - `FAIL`: schema validation or smoke tests failed
+
+Policy example:
+
+```json
+{
+  "max_changed_percent": 25,
+  "max_file_growth_percent": 50,
+  "max_lookup_slowdown_percent": 25,
+  "max_host_level_growth_percent": 50,
+  "required_fields": [
+    "privacy.is_vpn",
+    "confidence"
+  ],
+  "allowed_dropped_fields": []
+}
+```
 
 ## CI Example
 
@@ -595,15 +650,19 @@ jobs:
             --old artifacts/vpn-previous.mmdb \
             --new artifacts/vpn-current.mmdb \
             --schema examples/vpn.schema.json \
+            --policy examples/release.policy.json \
             --smoke fixtures/vpn-smoke.json \
             --sample 100000 \
-            --markdown report.md
+            --markdown report.md \
+            --html report.html
 
       - name: Upload report
         uses: actions/upload-artifact@v4
         with:
           name: mmdb-audit-report
-          path: report.md
+          path: |
+            report.md
+            report.html
 ```
 
 For stricter release gates, use `diff` directly:
@@ -674,15 +733,6 @@ internal/report/    JSON and Markdown output
 examples/           schema and smoke examples
 docs/               command guides and CI notes
 ```
-
-## Roadmap
-
-Planned areas for future work:
-
-- raw source CIDR overlap linting before MMDB compilation
-- richer JSON Schema compatibility
-- SARIF or GitHub annotation output for CI
-
 
 
 ## License

@@ -1,0 +1,11 @@
+{
+  "max_changed_percent": 25,
+  "max_file_growth_percent": 50,
+  "max_lookup_slowdown_percent": 25,
+  "max_host_level_growth_percent": 50,
+  "required_fields": [
+    "privacy.is_vpn",
+    "confidence"
+  ],
+  "allowed_dropped_fields": []
+}
