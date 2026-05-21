@@ -13,6 +13,7 @@ import (
 	"mmdbforge/internal/diff"
 	"mmdbforge/internal/prefixes"
 	"mmdbforge/internal/stats"
+	"mmdbforge/internal/testbench"
 )
 
 func JSON(w io.Writer, v any) error {
@@ -185,6 +186,38 @@ func PrefixTable(w io.Writer, res prefixes.Result) error {
 func BenchTable(w io.Writer, res bench.Result) error {
 	_, err := fmt.Fprintf(w, "database\t%s\nlookups\t%d\nelapsed_ms\t%.2f\nlookups_per_sec\t%.2f\navg_lookup_micros\t%.2f\n", res.Database, res.Lookups, res.ElapsedMS, res.LookupsPerSec, res.AvgLookupMicros)
 	return err
+}
+
+func TestbenchMarkdown(res testbench.CompareResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# MMDB Testbench Compare\n\n")
+	fmt.Fprintf(&b, "- Checked: %d\n", res.Checked)
+	fmt.Fprintf(&b, "- Changed: %d\n", res.Changed)
+	fmt.Fprintf(&b, "- Regressions: %d\n", res.Regressions)
+	if len(res.Changes) > 0 {
+		fmt.Fprintf(&b, "\n## Changes\n\n| IP | Passed before | Passed after | Changed fields |\n|---|---:|---:|---:|\n")
+		for _, ch := range res.Changes {
+			fmt.Fprintf(&b, "| `%s` | %v | %v | %d |\n", ch.IP, ch.PassedBefore, ch.PassedAfter, len(ch.FieldChanges))
+		}
+	}
+	return b.String()
+}
+
+func TestbenchHTML(res testbench.CompareResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<!doctype html><html><head><meta charset=\"utf-8\"><title>MMDB Testbench</title>")
+	fmt.Fprintf(&b, "<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin:32px;color:#17202a}table{border-collapse:collapse;width:100%%}th,td{border:1px solid #d8dee9;padding:8px}th{background:#f6f8fa}.bad{background:#fee2e2}.ok{background:#dcfce7}.num{text-align:right}code{background:#f6f8fa;padding:2px 4px;border-radius:4px}</style></head><body>")
+	fmt.Fprintf(&b, "<h1>MMDB Testbench Compare</h1><ul><li>Checked: %d</li><li>Changed: %d</li><li>Regressions: %d</li></ul>", res.Checked, res.Changed, res.Regressions)
+	fmt.Fprintf(&b, "<table><tr><th>IP</th><th>Passed before</th><th>Passed after</th><th>Changed fields</th></tr>")
+	for _, ch := range res.Changes {
+		class := "ok"
+		if ch.PassedBefore && !ch.PassedAfter {
+			class = "bad"
+		}
+		fmt.Fprintf(&b, "<tr class=\"%s\"><td><code>%s</code></td><td>%v</td><td>%v</td><td class=\"num\">%d</td></tr>", class, html.EscapeString(ch.IP), ch.PassedBefore, ch.PassedAfter, len(ch.FieldChanges))
+	}
+	fmt.Fprintf(&b, "</table></body></html>")
+	return b.String()
 }
 
 func writeCoverageDiff(b *strings.Builder, res stats.DiffResult) {

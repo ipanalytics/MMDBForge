@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"mmdbforge/internal/schema"
 	"mmdbforge/internal/smoke"
 	"mmdbforge/internal/stats"
+	"mmdbforge/internal/testbench"
 )
 
 const usage = `MMDB Forge is a developer toolkit for inspecting, validating, diffing, and explaining custom MaxMind DB files.
@@ -34,6 +36,9 @@ Usage:
   mmdbforge stats diff <old.mmdb> <new.mmdb> [--sample N] [--full]
   mmdbforge fields <db.mmdb> [--sample N]
   mmdbforge smoke <db.mmdb> <smoke.json>
+  mmdbforge test run <config.yaml> [--output run.json]
+  mmdbforge test compare <baseline.json> <current.json> [--output compare.json]
+  mmdbforge test report <compare.json> [--markdown [file]] [--html [file]]
   mmdbforge prefixes <db.mmdb> [new.mmdb] [--sample N] [--full]
   mmdbforge bench <db.mmdb> [new.mmdb] [--sample N] [--full]
   mmdbforge audit release --old old.mmdb --new new.mmdb [--schema schema.json] [--smoke smoke.json] [--policy policy.json] [--sample N] [--markdown [file]] [--html [file]]
@@ -71,6 +76,8 @@ func run(args []string, out io.Writer) error {
 		return fieldsCmd(args[1:], out)
 	case "smoke":
 		return smokeCmd(args[1:], out)
+	case "test":
+		return testCmd(args[1:], out)
 	case "prefixes":
 		return prefixesCmd(args[1:], out)
 	case "bench":
@@ -323,6 +330,105 @@ func smokeCmd(args []string, out io.Writer) error {
 		return fmt.Errorf("smoke failed: %d expectation(s) failed", res.Failed)
 	}
 	return nil
+}
+
+func testCmd(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: mmdbforge test <run|compare|report>")
+	}
+	switch args[0] {
+	case "run":
+		return testRunCmd(args[1:], out)
+	case "compare":
+		return testCompareCmd(args[1:], out)
+	case "report":
+		return testReportCmd(args[1:], out)
+	default:
+		return fmt.Errorf("unknown test command %q", args[0])
+	}
+}
+
+func testRunCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("test run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var output string
+	fs.StringVar(&output, "output", "", "write run result JSON to file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: mmdbforge test run <config.yaml> [--output run.json]")
+	}
+	res, err := testbench.Run(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if output != "" {
+		f, err := os.Create(output)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return report.JSON(f, res)
+	}
+	return report.JSON(out, res)
+}
+
+func testCompareCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("test compare", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var output string
+	fs.StringVar(&output, "output", "", "write compare result JSON to file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("usage: mmdbforge test compare <baseline.json> <current.json>")
+	}
+	res, err := testbench.Compare(fs.Arg(0), fs.Arg(1))
+	if err != nil {
+		return err
+	}
+	if output != "" {
+		f, err := os.Create(output)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return report.JSON(f, res)
+	}
+	return report.JSON(out, res)
+}
+
+func testReportCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("test report", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var markdown markdownFlag
+	var html htmlFlag
+	fs.Var(&markdown, "markdown", "write Markdown report to optional path")
+	fs.Var(&html, "html", "write HTML report to optional path")
+	normalized := normalizeOptionalValue(normalizeOptionalValue(args, "--markdown"), "--html")
+	if err := fs.Parse(normalized); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: mmdbforge test report <compare.json> [--markdown [file]] [--html [file]]")
+	}
+	body, err := os.ReadFile(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	var res testbench.CompareResult
+	if err := json.Unmarshal(body, &res); err != nil {
+		return err
+	}
+	if markdown.set {
+		return writeMarkdown(out, markdown.path, report.TestbenchMarkdown(res))
+	}
+	if html.set {
+		return writeMarkdown(out, html.path, report.TestbenchHTML(res))
+	}
+	return report.JSON(out, res)
 }
 
 func prefixesCmd(args []string, out io.Writer) error {

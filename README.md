@@ -109,6 +109,9 @@ mmdbforge stats <db.mmdb> [flags]
 mmdbforge stats diff <old.mmdb> <new.mmdb> [flags]
 mmdbforge fields <db.mmdb> [flags]
 mmdbforge smoke <db.mmdb> <smoke.json>
+mmdbforge test run <config.yaml> [--output run.json]
+mmdbforge test compare <baseline.json> <current.json> [--output compare.json]
+mmdbforge test report <compare.json> [--markdown [file]] [--html [file]]
 mmdbforge prefixes <db.mmdb> [new.mmdb] [flags]
 mmdbforge bench <db.mmdb> [new.mmdb] [flags]
 mmdbforge audit release --old <old.mmdb> --new <new.mmdb> [flags]
@@ -526,6 +529,85 @@ Example output:
 Smoke tests are best for high-value examples: known VPN exits, known residential
 IPs, known anycast IPs, test prefixes, internal fixtures, and customer-reported
 edge cases.
+
+Smoke cases support exact expectations, allowed value sets, and denied value
+sets:
+
+```json
+{
+  "ip": "91.196.220.30",
+  "expect": {
+    "privacy.is_vpn": true,
+    "privacy.vpn_provider": "NordVPN"
+  },
+  "allow": {
+    "geo.city_name": ["Los Angeles", "London"]
+  },
+  "deny": {
+    "privacy.vpn_provider": [null, ""]
+  }
+}
+```
+
+## test
+
+`test` is the MMDB Forge testbench. It turns golden IP samples into reusable
+release artifacts.
+
+Run a testbench config:
+
+```bash
+mmdbforge test run examples/ipbench.yaml --output baseline.json
+```
+
+Run it again for a new database version:
+
+```bash
+mmdbforge test run examples/ipbench.yaml --output current.json
+```
+
+Compare two runs:
+
+```bash
+mmdbforge test compare baseline.json current.json --output compare.json
+```
+
+Generate reports:
+
+```bash
+mmdbforge test report compare.json --markdown testbench.md
+mmdbforge test report compare.json --html testbench.html
+```
+
+Config example:
+
+```yaml
+name: vpn-release-golden-samples
+database: vpn.mmdb
+fields:
+  - privacy.is_vpn
+  - privacy.vpn_provider
+  - network.connection_type
+  - geo.city_name
+cases:
+  - ip: 91.196.220.30
+    expect:
+      privacy.is_vpn: true
+      privacy.vpn_provider: NordVPN
+      network.connection_type: hosting
+    allow:
+      geo.city_name:
+        - Los Angeles
+        - London
+    deny:
+      privacy.vpn_provider:
+        - ""
+        - null
+```
+
+This is the “unit tests for IP intelligence databases” layer: exact expected
+fields, tolerated alternatives, forbidden values, persistent run artifacts, run
+comparison, and HTML/Markdown reports.
 
 ## prefixes
 

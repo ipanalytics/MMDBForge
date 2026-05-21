@@ -1,0 +1,24 @@
+name: vpn-release-golden-samples
+database: vpn.mmdb
+fields:
+  - privacy.is_vpn
+  - privacy.vpn_provider
+  - network.connection_type
+  - geo.city_name
+cases:
+  - ip: 91.196.220.30
+    expect:
+      privacy.is_vpn: true
+      privacy.vpn_provider: NordVPN
+      network.connection_type: hosting
+    allow:
+      geo.city_name:
+        - Los Angeles
+        - London
+    deny:
+      privacy.vpn_provider:
+        - ""
+        - null
+  - ip: 8.8.8.8
+    expect:
+      profile.is_anycast: true
