@@ -2,6 +2,10 @@
 
 **MMDB Forge is a developer toolkit for inspecting, validating, diffing, and explaining custom MaxMind DB files.**
 
+<p>
+  <img src="./site/banner.png" alt="MMDB Forge" width="100%">
+</p>
+
 Most MaxMind DB tools are built around one question:
 
 ```text
